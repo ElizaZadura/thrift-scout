@@ -1,0 +1,5 @@
+{
+  "name": "Thrift Scout",
+  "description": "Snap a photo of an item at a thrift store to identify it and estimate its resale value.",
+  "requestFramePermissions": ["camera"]
+}
