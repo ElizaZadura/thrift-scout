@@ -1,10 +1,14 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 
-export function LoadingSpinner() {
+interface LoadingSpinnerProps {
+  onCancel: () => void;
+}
+
+export function LoadingSpinner({ onCancel }: LoadingSpinnerProps) {
   return (
-    <div className="flex flex-col items-center justify-center h-64 gap-6">
+    <div className="flex flex-col items-center justify-center h-64 gap-8">
       <motion.div
         animate={{ rotate: 360 }}
         transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
@@ -18,7 +22,15 @@ export function LoadingSpinner() {
       </motion.div>
       <div className="text-center">
         <h3 className="text-xl font-semibold text-slate-800 mb-2">Analyzing your find...</h3>
-        <p className="text-slate-500 text-sm animate-pulse">Searching the web for current prices</p>
+        <p className="text-slate-500 text-sm animate-pulse mb-6">Searching the web for current prices</p>
+        
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-2 px-6 py-2 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors text-sm font-medium mx-auto"
+        >
+          <X size={16} />
+          Cancel Analysis
+        </button>
       </div>
     </div>
   );

@@ -15,19 +15,50 @@ export default function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Debugging state transitions and global errors
+  React.useEffect(() => {
+    console.log(`App state changed to: ${appState}`);
+    
+    const handleError = (event: ErrorEvent | PromiseRejectionEvent) => {
+      console.error("Global error caught:", event);
+      const message = (event as ErrorEvent).message || "An unexpected error occurred.";
+      setErrorMsg(`System Error: ${message}`);
+      setAppState('error');
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleError);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleError);
+    };
+  }, [appState]);
+
   const handleImageCapture = async (base64: string, mimeType: string) => {
+    console.log("Image captured, starting analysis...");
     setImageSrc(`data:${mimeType};base64,${base64}`);
     setAppState('analyzing');
     setErrorMsg(null);
 
     try {
+      console.log("Calling evaluateItem...");
       const result = await evaluateItem(base64, mimeType);
-      setEvaluation(result.evaluation);
-      setGroundingChunks(result.groundingChunks || []);
-      setAppState('result');
+      
+      // Check if we are still in the analyzing state (user hasn't cancelled)
+      setAppState(current => {
+        if (current === 'analyzing') {
+          console.log("Evaluation successful:", result);
+          setEvaluation(result.evaluation);
+          setGroundingChunks(result.groundingChunks || []);
+          return 'result';
+        }
+        return current;
+      });
     } catch (error) {
-      console.error("Evaluation failed:", error);
-      setErrorMsg(error instanceof Error ? error.message : "Failed to evaluate the item.");
+      console.error("Evaluation failed in App.tsx:", error);
+      const message = error instanceof Error ? error.message : "Failed to evaluate the item.";
+      setErrorMsg(message);
       setAppState('error');
     }
   };
@@ -81,7 +112,7 @@ export default function App() {
               transition={{ duration: 0.3 }}
               className="flex flex-col items-center justify-center min-h-[60vh]"
             >
-              <LoadingSpinner />
+              <LoadingSpinner onCancel={handleReset} />
             </motion.div>
           )}
 

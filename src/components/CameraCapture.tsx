@@ -12,15 +12,50 @@ export function CameraCapture({ onImageCapture }: CameraCaptureProps) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      // result is something like "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
-      const [prefix, base64] = result.split(',');
+    // Use URL.createObjectURL instead of FileReader for better memory efficiency
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    
+    img.onerror = (e) => {
+      console.error("Image load error", e);
+      URL.revokeObjectURL(objectUrl);
+      alert("Failed to process the image. It might be corrupted or in an unsupported format.");
+    };
+
+    img.onload = () => {
+      // Resize image to max 1024px width/height
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      const maxDim = 1024;
+
+      if (width > height) {
+        if (width > maxDim) {
+          height *= maxDim / width;
+          width = maxDim;
+        }
+      } else {
+        if (height > maxDim) {
+          width *= maxDim / height;
+          height = maxDim;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      // Clean up the object URL
+      URL.revokeObjectURL(objectUrl);
+
+      const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      const [prefix, base64] = resizedDataUrl.split(',');
       const mimeType = prefix.match(/:(.*?);/)?.[1] || 'image/jpeg';
       onImageCapture(base64, mimeType);
     };
-    reader.readAsDataURL(file);
+
+    img.src = objectUrl;
   };
 
   return (
