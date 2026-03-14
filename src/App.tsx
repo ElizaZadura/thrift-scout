@@ -14,11 +14,51 @@ export default function App() {
   const [groundingChunks, setGroundingChunks] = useState<any[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [needsKey, setNeedsKey] = useState(false);
+
+  // Check if we already have a key selected
+  React.useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setNeedsKey(!hasKey);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setNeedsKey(false);
+      setAppState('idle');
+      setErrorMsg(null);
+    } else {
+      alert("To select an API key, please use this app inside the AI Studio preview window.");
+    }
+  };
+
+  // Cleanup Blob URLs to prevent memory leaks
+  React.useEffect(() => {
+    return () => {
+      if (imageSrc && imageSrc.startsWith('blob:')) {
+        URL.revokeObjectURL(imageSrc);
+      }
+    };
+  }, [imageSrc]);
 
   // Debugging state transitions and global errors
   React.useEffect(() => {
     console.log(`App state changed to: ${appState}`);
     
+    // Crash detection: check if we were processing before a reload
+    const wasProcessing = localStorage.getItem('thrift_scout_processing');
+    if (wasProcessing === 'true') {
+      localStorage.removeItem('thrift_scout_processing');
+      setErrorMsg("The app seems to have restarted during analysis. This usually happens if the photo was too large for your phone's memory. Try taking the photo from further away or use a lower resolution setting.");
+      setAppState('error');
+    }
+
     const handleError = (event: ErrorEvent | PromiseRejectionEvent) => {
       console.error("Global error caught:", event);
       const message = (event as ErrorEvent).message || "An unexpected error occurred.";
@@ -37,18 +77,47 @@ export default function App() {
 
   const handleImageCapture = async (base64: string, mimeType: string) => {
     console.log("Image captured, starting analysis...");
-    setImageSrc(`data:${mimeType};base64,${base64}`);
+    localStorage.setItem('thrift_scout_processing', 'true');
     setAppState('analyzing');
     setErrorMsg(null);
 
     try {
       console.log("Calling evaluateItem...");
-      const result = await evaluateItem(base64, mimeType);
       
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Analysis timed out. The connection might be slow or the image was too large.")), 60000)
+      );
+
+      // Race the evaluation against the timeout
+      const result = await Promise.race([
+        evaluateItem(base64, mimeType),
+        timeoutPromise
+      ]) as { evaluation: ItemEvaluation, groundingChunks?: any[] };
+      
+      localStorage.removeItem('thrift_scout_processing');
       // Check if we are still in the analyzing state (user hasn't cancelled)
       setAppState(current => {
         if (current === 'analyzing') {
           console.log("Evaluation successful:", result);
+          
+          // Convert base64 back to a Blob for memory-efficient preview
+          try {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType });
+            const blobUrl = URL.createObjectURL(blob);
+            setImageSrc(blobUrl);
+          } catch (e) {
+            console.error("Error creating blob URL", e);
+            // Fallback to data URL if blob fails
+            setImageSrc(`data:${mimeType};base64,${base64}`);
+          }
+
           setEvaluation(result.evaluation);
           setGroundingChunks(result.groundingChunks || []);
           return 'result';
@@ -58,7 +127,14 @@ export default function App() {
     } catch (error) {
       console.error("Evaluation failed in App.tsx:", error);
       const message = error instanceof Error ? error.message : "Failed to evaluate the item.";
-      setErrorMsg(message);
+      
+      if (message.includes("API_KEY_INVALID") || message.includes("API key not valid")) {
+        setNeedsKey(true);
+        setErrorMsg("Your API key is missing or invalid. Please click the button below to connect your Google Cloud project.");
+      } else {
+        setErrorMsg(message);
+      }
+      
       setAppState('error');
     }
   };
@@ -147,12 +223,30 @@ export default function App() {
               </div>
               <h2 className="text-2xl font-bold text-slate-900 mb-3">Oops, something went wrong</h2>
               <p className="text-slate-600 mb-8">{errorMsg}</p>
-              <button
-                onClick={handleReset}
-                className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-2xl shadow-md transition-all active:scale-95 font-medium"
-              >
-                Try Again
-              </button>
+              
+              <div className="flex flex-col gap-3 w-full">
+                {needsKey ? (
+                  <button
+                    onClick={handleSelectKey}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-2xl shadow-md transition-all active:scale-95 font-medium"
+                  >
+                    Connect to Gemini
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleReset}
+                    className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-2xl shadow-md transition-all active:scale-95 font-medium"
+                  >
+                    Try Again
+                  </button>
+                )}
+                
+                {needsKey && (
+                  <p className="text-xs text-slate-400 mt-2">
+                    Note: You must use a paid Google Cloud project key for Gemini 3 models.
+                  </p>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
